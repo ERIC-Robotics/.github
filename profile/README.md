@@ -14,7 +14,7 @@ Our mission is to **increase observability** in industries like infrastructure, 
 - **Vision Systems & Software:** Our robots use advanced cameras and sensors, paired with powerful AI, to automate tasks like visual inspections and barcode scanning.
 - **IoT Solutions:** Connecting machines and infrastructure through data integration, providing real-time insights and analytics for facilities.
 - **Robotics Software Development:** We build ROS2-based robotics software, developing innovative solutions to make robots smarter and more autonomous.
-- 
+
 ---
 
 ## 🛠 Tech Stack:
