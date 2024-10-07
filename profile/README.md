@@ -40,7 +40,7 @@ Feel free to reach out for collaborations, inquiries, or just to say hello! We'r
 
 ---
 
-**ERIC Robotics – Creating Intelligent Robotics for a Connected Future.**
+# ERIC Robotics – Creating Intelligent Robotics for a Connected Future.
 
 ---
 
