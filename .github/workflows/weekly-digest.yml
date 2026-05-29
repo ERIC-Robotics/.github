@@ -1,0 +1,218 @@
+name: Weekly Org Activity Digest
+
+on:
+  schedule:
+    - cron: '0 6 * * 1'  # Every Monday at 6:00 AM UTC
+  workflow_dispatch:      # Allow manual trigger from Actions tab
+
+jobs:
+  digest:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Generate and post weekly digest
+        env:
+          GH_TOKEN: ${{ secrets.DIGEST_GH_TOKEN }}
+          TEAMS_WEBHOOK: ${{ secrets.TEAMS_WEBHOOK_URL }}
+          ORG: ${{ secrets.GH_ORG_NAME }}
+        run: |
+          set -e
+
+          # Date range: last 7 days
+          SINCE=$(date -u -d '7 days ago' '+%Y-%m-%dT%H:%M:%SZ')
+          WEEK=$(date -u -d '7 days ago' '+%b %d')
+          TODAY=$(date -u '+%b %d, %Y')
+
+          echo "Fetching repos for org: $ORG"
+
+          # Get all repos in the org (up to 100)
+          REPOS=$(curl -s -H "Authorization: token $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/orgs/$ORG/repos?per_page=100&sort=pushed&direction=desc" \
+            | jq -r '.[].name')
+
+          TOTAL_COMMITS=0
+          TOTAL_PRS_OPENED=0
+          TOTAL_PRS_MERGED=0
+          ACTIVE_REPOS=0
+          CONTRIBUTORS=""
+          REPO_LINES=""
+
+          for REPO in $REPOS; do
+            # Commits in last 7 days
+            COMMITS=$(curl -s -H "Authorization: token $GH_TOKEN" \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/$ORG/$REPO/commits?since=$SINCE&per_page=100" \
+              | jq 'if type == "array" then length else 0 end')
+
+            # PRs opened in last 7 days
+            PRS_OPENED=$(curl -s -H "Authorization: token $GH_TOKEN" \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/$ORG/$REPO/pulls?state=all&sort=created&direction=desc&per_page=100" \
+              | jq --arg since "$SINCE" '[.[] | select(.created_at >= $since)] | length')
+
+            # PRs merged in last 7 days
+            PRS_MERGED=$(curl -s -H "Authorization: token $GH_TOKEN" \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/$ORG/$REPO/pulls?state=closed&sort=updated&direction=desc&per_page=100" \
+              | jq --arg since "$SINCE" '[.[] | select(.merged_at != null and .merged_at >= $since)] | length')
+
+            # Contributors this week
+            REPO_CONTRIBUTORS=$(curl -s -H "Authorization: token $GH_TOKEN" \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/$ORG/$REPO/commits?since=$SINCE&per_page=100" \
+              | jq -r 'if type == "array" then .[].author.login // .[].commit.author.name else empty end' \
+              | sort -u | tr '\n' ',' | sed 's/,$//')
+
+            TOTAL_COMMITS=$((TOTAL_COMMITS + COMMITS))
+            TOTAL_PRS_OPENED=$((TOTAL_PRS_OPENED + PRS_OPENED))
+            TOTAL_PRS_MERGED=$((TOTAL_PRS_MERGED + PRS_MERGED))
+
+            if [ "$COMMITS" -gt 0 ] || [ "$PRS_OPENED" -gt 0 ]; then
+              ACTIVE_REPOS=$((ACTIVE_REPOS + 1))
+              REPO_LINES="$REPO_LINES\n• **$REPO** — $COMMITS commits, $PRS_OPENED PRs opened, $PRS_MERGED merged"
+              if [ -n "$REPO_CONTRIBUTORS" ]; then
+                REPO_LINES="$REPO_LINES ($REPO_CONTRIBUTORS)"
+                CONTRIBUTORS="$CONTRIBUTORS,$REPO_CONTRIBUTORS"
+              fi
+            fi
+          done
+
+          # Unique contributors across org
+          UNIQUE_CONTRIBUTORS=$(echo "$CONTRIBUTORS" | tr ',' '\n' | sort -u | grep -v '^$' | wc -l)
+
+          # Build repo activity section
+          if [ -z "$REPO_LINES" ]; then
+            REPO_SECTION="No repository activity this week."
+          else
+            REPO_SECTION=$(printf "$REPO_LINES")
+          fi
+
+          # Post to Teams via Adaptive Card
+          curl -s -X POST "$TEAMS_WEBHOOK" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"type\": \"message\",
+              \"attachments\": [
+                {
+                  \"contentType\": \"application/vnd.microsoft.card.adaptive\",
+                  \"content\": {
+                    \"\$schema\": \"http://adaptivecards.io/schemas/adaptive-card.json\",
+                    \"type\": \"AdaptiveCard\",
+                    \"version\": \"1.4\",
+                    \"body\": [
+                      {
+                        \"type\": \"TextBlock\",
+                        \"text\": \"📊 ERIC Robotics — Weekly Engineering Digest\",
+                        \"weight\": \"Bolder\",
+                        \"size\": \"Large\",
+                        \"wrap\": true
+                      },
+                      {
+                        \"type\": \"TextBlock\",
+                        \"text\": \"$WEEK – $TODAY\",
+                        \"isSubtle\": true,
+                        \"spacing\": \"None\"
+                      },
+                      {
+                        \"type\": \"ColumnSet\",
+                        \"spacing\": \"Medium\",
+                        \"columns\": [
+                          {
+                            \"type\": \"Column\",
+                            \"width\": \"stretch\",
+                            \"items\": [{
+                              \"type\": \"TextBlock\",
+                              \"text\": \"$TOTAL_COMMITS\",
+                              \"weight\": \"Bolder\",
+                              \"size\": \"ExtraLarge\"
+                            }, {
+                              \"type\": \"TextBlock\",
+                              \"text\": \"Commits\",
+                              \"isSubtle\": true,
+                              \"spacing\": \"None\"
+                            }]
+                          },
+                          {
+                            \"type\": \"Column\",
+                            \"width\": \"stretch\",
+                            \"items\": [{
+                              \"type\": \"TextBlock\",
+                              \"text\": \"$TOTAL_PRS_OPENED\",
+                              \"weight\": \"Bolder\",
+                              \"size\": \"ExtraLarge\"
+                            }, {
+                              \"type\": \"TextBlock\",
+                              \"text\": \"PRs Opened\",
+                              \"isSubtle\": true,
+                              \"spacing\": \"None\"
+                            }]
+                          },
+                          {
+                            \"type\": \"Column\",
+                            \"width\": \"stretch\",
+                            \"items\": [{
+                              \"type\": \"TextBlock\",
+                              \"text\": \"$TOTAL_PRS_MERGED\",
+                              \"weight\": \"Bolder\",
+                              \"size\": \"ExtraLarge\"
+                            }, {
+                              \"type\": \"TextBlock\",
+                              \"text\": \"PRs Merged\",
+                              \"isSubtle\": true,
+                              \"spacing\": \"None\"
+                            }]
+                          },
+                          {
+                            \"type\": \"Column\",
+                            \"width\": \"stretch\",
+                            \"items\": [{
+                              \"type\": \"TextBlock\",
+                              \"text\": \"$UNIQUE_CONTRIBUTORS\",
+                              \"weight\": \"Bolder\",
+                              \"size\": \"ExtraLarge\"
+                            }, {
+                              \"type\": \"TextBlock\",
+                              \"text\": \"Contributors\",
+                              \"isSubtle\": true,
+                              \"spacing\": \"None\"
+                            }]
+                          },
+                          {
+                            \"type\": \"Column\",
+                            \"width\": \"stretch\",
+                            \"items\": [{
+                              \"type\": \"TextBlock\",
+                              \"text\": \"$ACTIVE_REPOS\",
+                              \"weight\": \"Bolder\",
+                              \"size\": \"ExtraLarge\"
+                            }, {
+                              \"type\": \"TextBlock\",
+                              \"text\": \"Active Repos\",
+                              \"isSubtle\": true,
+                              \"spacing\": \"None\"
+                            }]
+                          }
+                        ]
+                      },
+                      {
+                        \"type\": \"TextBlock\",
+                        \"text\": \"Repository Breakdown\",
+                        \"weight\": \"Bolder\",
+                        \"spacing\": \"Medium\"
+                      },
+                      {
+                        \"type\": \"TextBlock\",
+                        \"text\": \"$REPO_SECTION\",
+                        \"wrap\": true,
+                        \"spacing\": \"Small\"
+                      }
+                    ]
+                  }
+                }
+              ]
+            }"
+
+          echo "Digest posted to Teams."
