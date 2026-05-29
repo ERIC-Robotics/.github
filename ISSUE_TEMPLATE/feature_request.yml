@@ -1,0 +1,53 @@
+name: Feature Request
+description: Propose a new feature or capability
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: "## Feature Request"
+
+  - type: dropdown
+    id: product
+    attributes:
+      label: Target product / system
+      options:
+        - RailwayMitra
+        - UBIS
+        - RunwayMitra
+        - Inspection Trolley
+        - DAQ Pipeline
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or gap this solves
+      placeholder: "What limitation or need is driving this request?"
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority
+      options:
+        - Critical (blocks delivery)
+        - High (impacts milestone)
+        - Medium
+        - Low
+    validations:
+      required: true
